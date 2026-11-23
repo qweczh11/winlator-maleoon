@@ -40,6 +40,10 @@ jobs:
           curl -sL -o /tmp/dxvk.tar.gz https://github.com/doitsujin/dxvk/archive/refs/tags/v1.10.3.tar.gz
           rm -rf /tmp/dxvk && mkdir -p /tmp/dxvk && tar xf /tmp/dxvk.tar.gz -C /tmp/dxvk --strip-components=1
           cd /tmp/dxvk
+          # 新版 mingw-w64 (gcc13/14) 不再隐式包含 <cstdint>，DXVK 1.10.3 会报 uint32_t 未声明
+          export CXXFLAGS="-include cstdint"
+          export CFLAGS="-include stdint.h"
+          x86_64-w64-mingw32-g++ --version | head -1
           # [maleoon] Vortek 客户端不回传 core VkPhysicalDeviceFeatures（全 0），
           # 导致 logicOp / variableMultisampleRate 等少数从驱动读取的位判为不支持，
           # CheckFeatureLevelSupport 一路 return false，FL 掉到 9_3。
