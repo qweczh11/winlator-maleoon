@@ -174,6 +174,60 @@ def patch_request_handler(src):
     return src, n
 
 
+G = os.path.join(APP, 'src/main/cpp/gladiorenderer')
+
+
+def patch_gl_texture(src):
+    """Gladio: currentRenderer 未就绪时 GLTexture_getBound 会空指针（SIGSEGV @0x3e8）"""
+    n = 0
+    old = ('GLTexture* GLTexture_getBound(GLenum target) {\n'
+           '    uint8_t activeTexture = currentRenderer->clientState.activeTexture;\n'
+           '    return currentRenderer->clientState.texture[activeTexture][indexOfGLTarget(target)];\n'
+           '}')
+    new = ('GLTexture* GLTexture_getBound(GLenum target) {\n'
+           '    if (!currentRenderer) return NULL;\n'
+           '    uint8_t activeTexture = currentRenderer->clientState.activeTexture;\n'
+           '    int idx = indexOfGLTarget(target);\n'
+           '    if (idx < 0) return NULL;\n'
+           '    return currentRenderer->clientState.texture[activeTexture][idx];\n'
+           '}')
+    if old in src:
+        src = src.replace(old, new, 1)
+        n += 1
+
+    old2 = 'void GLTexture_bind(GLenum target, GLuint id) {\n    bool isTextureRect'
+    new2 = 'void GLTexture_bind(GLenum target, GLuint id) {\n    if (!currentRenderer) return;\n    bool isTextureRect'
+    if old2 in src:
+        src = src.replace(old2, new2, 1)
+        n += 1
+    return src, n
+
+
+def patch_rootfs_installer(src):
+    """让 rootfs 安装/每次启动补齐中文字体（assets/cjk_fonts.tzst）"""
+    n = 0
+    anchor = 'rootFS.createRFSVersionFile(LATEST_VERSION);'
+    if 'cjk_fonts.tzst' not in src and anchor in src:
+        src = src.replace(
+            anchor,
+            'TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, activity, "cjk_fonts.tzst", rootDir);\n                ' + anchor,
+            1)
+        n += 1
+
+    old = ('        if (!rootFS.isValid() || rootFS.getVersion() < LATEST_VERSION) install(activity);\n'
+           '    }')
+    new = ('        if (!rootFS.isValid() || rootFS.getVersion() < LATEST_VERSION) install(activity);\n'
+           '        else {\n'
+           '            File cjkFont = new File(rootFS.getRootDir(), "usr/share/fonts/truetype/wqy/wqy-microhei.ttc");\n'
+           '            if (!cjkFont.exists()) TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, activity, "cjk_fonts.tzst", rootFS.getRootDir());\n'
+           '        }\n'
+           '    }')
+    if old in src and 'cjkFont' not in src:
+        src = src.replace(old, new, 1)
+        n += 1
+    return src, n
+
+
 ok = True
 ok &= patch_file(os.path.join(R, 'include/vk_context.h'), patch_vk_context_h)
 ok &= patch_file(os.path.join(R, 'src/vk_context.c'), patch_vk_context)
@@ -181,6 +235,8 @@ ok &= patch_file(os.path.join(R, 'src/vulkan_helper.c'), patch_vulkan_helper)
 ok &= patch_file(os.path.join(R, 'src/shader_inspector.c'), patch_shader_inspector)
 ok &= patch_file(os.path.join(R, 'src/texture_decoder.c'), patch_texture_decoder)
 ok &= patch_file(os.path.join(R, 'src/request_handler.c'), patch_request_handler)
+ok &= patch_file(os.path.join(G, 'src/gl_texture.c'), patch_gl_texture)
+ok &= patch_file(os.path.join(APP, 'src/main/java/com/winlator/xenvironment/RootFSInstaller.java'), patch_rootfs_installer)
 
 print('=== patch report ===')
 for r in report:
