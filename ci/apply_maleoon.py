@@ -149,6 +149,19 @@ def patch_vulkan_helper(src):
     if old in src:
         src = src.replace(old, 'if ((isMaliDevice || isHuaweiDevice || isXclipseDevice) && context->engineVersion', 1)
         n += 1
+    old = 'void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {\n    features->textureCompressionBC = VK_TRUE;'
+    if old in src and 'vtFeatures' not in src:
+        src = src.replace(old, '''void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {
+    MLOGE("vtFeatures before: ssExtFmt=%u vtxAtomics=%u fragAtomics=%u ssWrite=%u ssRead=%u gather=%u sessInd=%u",
+          features->shaderStorageImageExtendedFormats, features->vertexPipelineStoresAndAtomics,
+          features->fragmentStoresAndAtomics, features->shaderStorageImageWriteWithoutFormat,
+          features->shaderStorageImageReadWithoutFormat, features->shaderImageGatherExtended,
+          features->shaderSampledImageArrayDynamicIndexing);
+    for (uint32_t fi = 0; fi < sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32); fi++) ((VkBool32*)features)[fi] = VK_TRUE;
+    MLOGE("vtFeatures: forced all core features TRUE");
+    features->textureCompressionBC = VK_TRUE;''', 1)
+        n += 1
+
     return src, n
 
 
