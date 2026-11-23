@@ -267,6 +267,81 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
         src = src.replace(old_ext, new_ext, 1)
         n += 1
 
+    old = 'void vt_handle_vkCreateDevice(VkContext* context) {'
+    if old in src and 'vtCreateDevice enter' not in src:
+        src = src.replace(old, old + '\n    MLOGE("vtCreateDevice enter");', 1)
+        n += 1
+
+    old_wait = '''    if (timeout != 0) {
+        VkResult result = VK_SUCCESS;
+        int fds[fenceCount];
+        for (int i = 0; i < fenceCount; i++) {
+            VkFenceGetFdInfoKHR getFdInfo = {0};
+            getFdInfo.sType = VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR;
+            getFdInfo.fence = fences[i];
+            getFdInfo.handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT;
+
+            result = vulkanWrapper.vkGetFenceFd(device, &getFdInfo, &fds[i]);
+            if (result != VK_SUCCESS) break;
+        }
+
+        send_fds(context->clientFd, fds, fenceCount, &result, sizeof(VkResult));
+        for (int i = 0; i < fenceCount; i++) CLOSEFD(fds[i]);
+    }'''
+    new_wait = '''    MLOGE("vtWaitForFences: count=%u waitAll=%u timeout=%llu", fenceCount, waitAll, (unsigned long long)timeout);
+    if (timeout != 0) {
+        VkResult result = VK_SUCCESS;
+        int fds[fenceCount];
+        int needFallback = (vulkanWrapper.vkGetFenceFd == NULL) ? 1 : 0;
+        for (uint32_t i = 0; i < fenceCount; i++) {
+            fds[i] = -1;
+            if (needFallback) continue;
+            VkFenceGetFdInfoKHR getFdInfo = {0};
+            getFdInfo.sType = VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR;
+            getFdInfo.fence = fences[i];
+            getFdInfo.handleType = VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT;
+
+            result = vulkanWrapper.vkGetFenceFd(device, &getFdInfo, &fds[i]);
+            MLOGE("vtWaitForFences: i=%u getFd result=%d fd=%d", i, (int)result, fds[i]);
+            if (result != VK_SUCCESS || fds[i] < 0) { needFallback = 1; break; }
+        }
+
+        if (needFallback) {
+            /* [maleoon] 驱动不支持 SYNC_FD 导出：服务端限时同步等待，再用 pipe 伪造已就绪 fd */
+            uint64_t useTimeout = (timeout > 2000000000ULL) ? 2000000000ULL : timeout;
+            VkResult wres = vulkanWrapper.vkWaitForFences(device, fenceCount, fences, waitAll, useTimeout);
+            MLOGE("vtWaitForFences: fallback wait result=%d", (int)wres);
+            if (wres == VK_SUCCESS) {
+                result = VK_SUCCESS;
+                for (uint32_t i = 0; i < fenceCount; i++) {
+                    int pp[2];
+                    if (pipe(pp) == 0) {
+                        ssize_t wr = write(pp[1], "1", 1);
+                        (void)wr;
+                        close(pp[1]);
+                        fds[i] = pp[0];
+                    }
+                }
+            } else {
+                result = wres;
+            }
+        }
+
+        int sret = send_fds(context->clientFd, fds, fenceCount, &result, sizeof(VkResult));
+        MLOGE("vtWaitForFences: send_fds ret=%d result=%d", sret, (int)result);
+        for (uint32_t i = 0; i < fenceCount; i++) { if (fds[i] >= 0) CLOSEFD(fds[i]); }
+    }'''
+    if old_wait in src and 'needFallback' not in src:
+        src = src.replace(old_wait, new_wait, 1)
+        n += 1
+
+    if '#include <unistd.h>' not in src:
+        if '#include <string.h>' in src:
+            src = src.replace('#include <string.h>', '#include <string.h>\n#include <unistd.h>', 1)
+        else:
+            src = src.replace('#include <stdio.h>', '#include <stdio.h>\n#include <unistd.h>', 1)
+        n += 1
+
     return src, n
 
 
