@@ -244,6 +244,13 @@ def patch_gl_texture(src):
 def patch_rootfs_installer(src):
     """让 rootfs 安装/每次启动补齐中文字体（assets/cjk_fonts.tzst）"""
     n = 0
+    # 2026-08-17 那个提交里 RootFSInstaller 调用了已经不存在的 SettingsFragment.resetBox64Version
+    if 'SettingsFragment.resetBox64Version(activity);' in src:
+        src = src.replace(
+            'SettingsFragment.resetBox64Version(activity);',
+            'SettingsFragment.resetPreferenceVersions(activity);', 1)
+        n += 1
+
     anchor = 'rootFS.createRFSVersionFile(LATEST_VERSION);'
     if 'cjk_fonts.tzst' not in src and anchor in src:
         src = src.replace(
