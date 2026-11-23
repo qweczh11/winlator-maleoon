@@ -21,20 +21,27 @@ jobs:
 
       - name: Show patched lines
         run: |
-          grep -n "MaleoonVK\|0x19E5u" src/app/src/main/cpp/vortekrenderer/src/*.c src/app/src/main/cpp/vortekrenderer/include/vk_context.h | head -20
+          grep -n "MaleoonVK\|0x19E5u" src/app/src/main/cpp/vortekrenderer/src/*.c \
+            src/app/src/main/cpp/vortekrenderer/include/vk_context.h | head -20
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK / NDK / CMake
+      - name: Android SDK components (use preinstalled SDK)
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" \
-                     "ndk;24.0.8215888" "cmake;3.22.1"
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK=$SDK"
+          SDKM=$(find "$SDK" -name sdkmanager -type f 2>/dev/null | head -1)
+          echo "sdkmanager=$SDKM"
+          if [ -z "$SDKM" ]; then echo "no sdkmanager found"; ls "$SDK" 2>/dev/null || true; exit 1; fi
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0" "ndk;24.0.8215888" "cmake;3.22.1"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          ls "$SDK/ndk" || true
 
       - name: Gradle assembleDebug
         run: |
