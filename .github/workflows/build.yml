@@ -51,7 +51,8 @@ jobs:
           sed -i 's|if (!adapter->checkFeatureSupport(features))|if (false \&\& !adapter->checkFeatureSupport(features))|' src/d3d11/d3d11_device.cpp
           grep -n "false && !adapter->checkFeatureSupport" src/d3d11/d3d11_device.cpp
           meson setup --cross-file build-win64.txt --buildtype release build.w64
-          ninja -C build.w64
+          # 只编 d3d11/dxgi（d3d9 模块在 mingw-w64 新版头文件下会重复定义，与本改动无关）
+          ninja -C build.w64 src/d3d11/d3d11.dll src/dxgi/dxgi.dll
           ls -l build.w64/src/d3d11/d3d11.dll build.w64/src/dxgi/dxgi.dll
           # 只替换 64 位 d3d11/dxgi，其余 DLL 与原版保持一致（接口 ABI 未变）
           TZ="$GITHUB_WORKSPACE/src/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"
