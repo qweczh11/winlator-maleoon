@@ -1,24 +1,47 @@
 #!/usr/bin/env python3
-"""把 Maleoon 适配 + 调试日志打进 winlator-app 的 vortekrenderer 源码。
+"""Maleoon(华为马良)适配 + 日志直写 /sdcard/workfile
 用法: python3 apply_maleoon.py <path-to-src/app>
-不依赖 patch 上下文，直接做精确字符串替换，替换失败会报出来。
 """
 import io
+import os
 import re
 import sys
-import os
 
 APP = sys.argv[1] if len(sys.argv) > 1 else 'src/app'
 R = os.path.join(APP, 'src/main/cpp/vortekrenderer')
 
 INCLUDE = '''#include <android/log.h>
-#define MLOGE(...) __android_log_print(ANDROID_LOG_INFO, "MaleoonVK", __VA_ARGS__)
+#include <stdio.h>
+#include <stdarg.h>
+
+static void MLOG_IMPL(const char* fmt, ...) {
+    va_list ap1, ap2;
+    va_start(ap1, fmt);
+    va_copy(ap2, ap1);
+    __android_log_vprint(ANDROID_LOG_INFO, "MaleoonVK", fmt, ap1);
+    va_end(ap1);
+    const char* paths[2] = {"/sdcard/workfile/winlator_vk.log",
+                            "/data/data/com.winlator/files/maleoon_vk.log"};
+    for (int i = 0; i < 2; i++) {
+        FILE* f = fopen(paths[i], "a");
+        if (!f) continue;
+        vfprintf(f, fmt, ap2);
+        fputc('\\n', f);
+        fflush(f);
+        fclose(f);
+    }
+    va_end(ap2);
+}
+#define MLOGE(...) MLOG_IMPL(__VA_ARGS__)
 '''
 
 report = []
 
 
 def patch_file(path, fn):
+    if not os.path.exists(path):
+        report.append(('NOFILE', os.path.basename(path)))
+        return False
     with io.open(path, 'r', encoding='utf-8') as f:
         src = f.read()
     new, n = fn(src)
@@ -43,9 +66,20 @@ def add_log_header(src):
 
 def patch_vk_context_h(src):
     old = 'VkDriverId driverID;'
-    if old not in src:
+    if old not in src or 'vendorID' in src:
         return src, 0
     return src.replace(old, old + '\n    uint32_t vendorID;', 1), 1
+
+
+def patch_vk_context(src):
+    n = 0
+    src, k = add_log_header(src)
+    n += k
+    old = 'VkContext* createVkContext(JNIEnv* env, jobject obj, int clientFd, jobject options) {'
+    if old in src and 'createVkContext enter' not in src:
+        src = src.replace(old, old + '\n    MLOGE("createVkContext enter");', 1)
+        n += 1
+    return src, n
 
 
 def patch_vulkan_helper(src):
@@ -54,7 +88,7 @@ def patch_vulkan_helper(src):
     n += k
 
     old = 'context->driverID = driverProperties.driverID;'
-    if old in src:
+    if old in src and 'context->vendorID' not in src:
         add = old + '''
     context->vendorID = properties2.properties.vendorID;
     MLOGE("device=%s vendorID=0x%04X driverID=%d api=%u.%u.%u driverVersion=%u",
@@ -70,7 +104,7 @@ def patch_vulkan_helper(src):
 
     old = 'bool isAdrenoDevice = context->driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY;'
     if old in src and 'isHuaweiDevice' not in src:
-        src = src.replace(old, old + '\n        bool isHuaweiDevice = context->vendorID == 0x19E5u; /* Maleoon */', 1)
+        src = src.replace(old, old + '\n        bool isHuaweiDevice = context->vendorID == 0x19E5u;', 1)
         n += 1
 
     old = 'if ((isMaliDevice || isXclipseDevice) && context->engineVersion'
@@ -118,17 +152,40 @@ def patch_texture_decoder(src):
     return src, n
 
 
+def patch_request_handler(src):
+    n = 0
+    src, k = add_log_header(src)
+    n += k
+
+    old = 'VkResult result = vulkanWrapper.vkCreateInstance(&createInfo, NULL, &instance);'
+    if old in src and 'vkCreateInstance result' not in src:
+        src = src.replace(old, old + '\n    MLOGE("vkCreateInstance result=%d", (int)result);', 1)
+        n += 1
+
+    old = 'VkResult result = vulkanWrapper.vkCreateDevice(physicalDevice, &createInfo, NULL, &device);'
+    if old in src and 'vkCreateDevice result' not in src:
+        src = src.replace(old, old + '''
+    MLOGE("vkCreateDevice result=%d extCount=%u", (int)result, createInfo.enabledExtensionCount);
+    if (result != VK_SUCCESS) {
+        for (uint32_t i = 0; i < createInfo.enabledExtensionCount; i++)
+            MLOGE("  ext[%u]=%s", i, createInfo.ppEnabledExtensionNames[i]);
+    }''', 1)
+        n += 1
+    return src, n
+
+
 ok = True
 ok &= patch_file(os.path.join(R, 'include/vk_context.h'), patch_vk_context_h)
+ok &= patch_file(os.path.join(R, 'src/vk_context.c'), patch_vk_context)
 ok &= patch_file(os.path.join(R, 'src/vulkan_helper.c'), patch_vulkan_helper)
 ok &= patch_file(os.path.join(R, 'src/shader_inspector.c'), patch_shader_inspector)
 ok &= patch_file(os.path.join(R, 'src/texture_decoder.c'), patch_texture_decoder)
+ok &= patch_file(os.path.join(R, 'src/request_handler.c'), patch_request_handler)
 
 print('=== patch report ===')
 for r in report:
     print(' ', r)
-
 if not ok:
-    print('!! 有文件没替换成功，检查上游是否改了代码')
+    print('!! 有文件没替换成功')
     sys.exit(1)
 print('all patches applied')
