@@ -303,7 +303,18 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
 
             result = vulkanWrapper.vkGetFenceFd(device, &getFdInfo, &fds[i]);
             MLOGE("vtWaitForFences: i=%u getFd result=%d fd=%d", i, (int)result, fds[i]);
-            if (result != VK_SUCCESS || fds[i] < 0) { needFallback = 1; break; }
+            if (result != VK_SUCCESS) { needFallback = 1; break; }
+            if (fds[i] < 0) {
+                /* SYNC_FD 规范：fd == -1 表示 fence 已经是 signal 状态（导出已消费信号） */
+                MLOGE("vtWaitForFences: i=%u already-signaled(-1)", i);
+                int pp[2];
+                if (pipe(pp) == 0) {
+                    ssize_t wr = write(pp[1], "1", 1);
+                    (void)wr;
+                    close(pp[1]);
+                    fds[i] = pp[0];
+                }
+            }
         }
 
         if (needFallback) {
