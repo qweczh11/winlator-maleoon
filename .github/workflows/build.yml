@@ -19,6 +19,9 @@ jobs:
       - name: Apply Maleoon (Kirin9010) patch
         run: python3 ci/apply_maleoon.py src/app
 
+      - name: Apply Chinese localization
+        run: python3 ci/apply_zh.py src/app
+
       - name: Show patched lines
         run: |
           grep -n "MaleoonVK\|0x19E5u" src/app/src/main/cpp/vortekrenderer/src/*.c \
