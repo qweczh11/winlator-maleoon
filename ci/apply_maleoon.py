@@ -311,19 +311,16 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
             uint64_t useTimeout = (timeout > 2000000000ULL) ? 2000000000ULL : timeout;
             VkResult wres = vulkanWrapper.vkWaitForFences(device, fenceCount, fences, waitAll, useTimeout);
             MLOGE("vtWaitForFences: fallback wait result=%d", (int)wres);
-            if (wres == VK_SUCCESS) {
-                result = VK_SUCCESS;
-                for (uint32_t i = 0; i < fenceCount; i++) {
-                    int pp[2];
-                    if (pipe(pp) == 0) {
-                        ssize_t wr = write(pp[1], "1", 1);
-                        (void)wr;
-                        close(pp[1]);
-                        fds[i] = pp[0];
-                    }
+            result = wres;
+            /* 无论成功或超时都必须回有效 fd，否则客户端 recv_fds 永久阻塞、窗口关不掉 */
+            for (uint32_t i = 0; i < fenceCount; i++) {
+                int pp[2];
+                if (pipe(pp) == 0) {
+                    ssize_t wr = write(pp[1], "1", 1);
+                    (void)wr;
+                    close(pp[1]);
+                    fds[i] = pp[0];
                 }
-            } else {
-                result = wres;
             }
         }
 
@@ -333,6 +330,19 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
     }'''
     if old_wait in src and 'needFallback' not in src:
         src = src.replace(old_wait, new_wait, 1)
+        n += 1
+
+    old_qs = '''    VkResult result = vulkanWrapper.vkQueueSubmit(queue, submitCount, submits, fence);
+    if (result == VK_ERROR_DEVICE_LOST) context->status = result;'''
+    new_qs = '''    VkResult result = vulkanWrapper.vkQueueSubmit(queue, submitCount, submits, fence);
+    MLOGE("vtQueueSubmit: fence=%llu sub=%u cb0=%u wait0=%u sig0=%u result=%d",
+          (unsigned long long)fenceId, submitCount,
+          submitCount ? submits[0].commandBufferCount : 0,
+          submitCount ? submits[0].waitSemaphoreCount : 0,
+          submitCount ? submits[0].signalSemaphoreCount : 0, (int)result);
+    if (result == VK_ERROR_DEVICE_LOST) context->status = result;'''
+    if old_qs in src and 'vtQueueSubmit:' not in src:
+        src = src.replace(old_qs, new_qs, 1)
         n += 1
 
     if '#include <unistd.h>' not in src:
