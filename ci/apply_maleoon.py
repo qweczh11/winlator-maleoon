@@ -209,6 +209,51 @@ def patch_request_handler(src):
             MLOGE("  ext[%u]=%s", i, createInfo.ppEnabledExtensionNames[i]);
     }''', 1)
         n += 1
+    if '#include <string.h>' not in src:
+        src = src.replace('#include <stdio.h>', '#include <stdio.h>\n#include <string.h>\n#include <stdlib.h>', 1)
+        n += 1
+
+    helper = '''
+static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const char* name) {
+    uint32_t count = 0;
+    if (!vulkanWrapper.vkEnumerateDeviceExtensionProperties) return false;
+    if (vulkanWrapper.vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &count, NULL) != VK_SUCCESS || count == 0) return false;
+    VkExtensionProperties* props = (VkExtensionProperties*)calloc(count, sizeof(VkExtensionProperties));
+    if (!props) return false;
+    bool found = false;
+    if (vulkanWrapper.vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &count, props) == VK_SUCCESS) {
+        for (uint32_t i = 0; i < count; i++) {
+            if (strcmp(props[i].extensionName, name) == 0) { found = true; break; }
+        }
+    }
+    free(props);
+    return found;
+}
+'''
+    if 'vtIsDeviceExtensionSupported' not in src:
+        src = src.replace('void vt_handle_vkCreateDevice(VkContext* context) {',
+                          helper + 'void vt_handle_vkCreateDevice(VkContext* context) {', 1)
+        n += 1
+
+    old_ext = '''    const char* extraExtensions[] = {"VK_KHR_get_memory_requirements2", "VK_KHR_dedicated_allocation", "VK_KHR_external_memory", "VK_KHR_external_memory_fd", "VK_KHR_external_fence", "VK_KHR_external_fence_fd", "VK_ANDROID_external_memory_android_hardware_buffer", "VK_EXT_queue_family_foreign"};
+    injectExtensions(context, (char***)&createInfo.ppEnabledExtensionNames, &createInfo.enabledExtensionCount,
+                     extraExtensions, ARRAY_SIZE(extraExtensions),
+                     globalImplementedDeviceExtensions, ARRAY_SIZE(globalImplementedDeviceExtensions));'''
+    new_ext = '''    const char* extraExtensionsAll[] = {"VK_KHR_get_memory_requirements2", "VK_KHR_dedicated_allocation", "VK_KHR_external_memory", "VK_KHR_external_memory_fd", "VK_KHR_external_fence", "VK_KHR_external_fence_fd", "VK_ANDROID_external_memory_android_hardware_buffer", "VK_EXT_queue_family_foreign"};
+    const char* extraExtensions[ARRAY_SIZE(extraExtensionsAll)];
+    uint32_t extraExtensionsCount = 0;
+    for (uint32_t ei = 0; ei < ARRAY_SIZE(extraExtensionsAll); ei++) {
+        if (vtIsDeviceExtensionSupported(physicalDevice, extraExtensionsAll[ei])) extraExtensions[extraExtensionsCount++] = extraExtensionsAll[ei];
+        else MLOGE("vtCreateDevice: drop unsupported ext %s", extraExtensionsAll[ei]);
+    }
+    MLOGE("vtCreateDevice: extraExt=%u", extraExtensionsCount);
+    injectExtensions(context, (char***)&createInfo.ppEnabledExtensionNames, &createInfo.enabledExtensionCount,
+                     extraExtensions, extraExtensionsCount,
+                     globalImplementedDeviceExtensions, ARRAY_SIZE(globalImplementedDeviceExtensions));'''
+    if old_ext in src and 'extraExtensionsAll' not in src:
+        src = src.replace(old_ext, new_ext, 1)
+        n += 1
+
     return src, n
 
 
