@@ -11,10 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch winlator-app upstream
+      - name: Fetch winlator-app upstream (pinned to match vortek-2.1 client)
         run: |
-          git clone --depth 1 https://github.com/brunodev85/winlator-app.git src
-          cd src && git log -1 --oneline
+          git clone --filter=blob:none https://github.com/brunodev85/winlator-app.git src
+          cd src
+          git checkout 3daac248d17f3208e2fb8600673a835185d4957a
+          git log -1 --oneline
 
       - name: Apply Maleoon (Kirin9010) patch
         run: python3 ci/apply_maleoon.py src/app
