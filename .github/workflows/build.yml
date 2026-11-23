@@ -26,6 +26,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq zstd fonts-wqy-microhei
           python3 ci/patch_cjk_font.py src/app
+          cp ci/cjk_fonts.tzst src/app/src/main/assets/cjk_fonts.tzst
+          ls -l src/app/src/main/assets/cjk_fonts.tzst
 
 
       - name: Show patched lines
