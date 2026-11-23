@@ -75,10 +75,48 @@ def patch_vk_context(src):
     n = 0
     src, k = add_log_header(src)
     n += k
+
+    if '#include <errno.h>' not in src:
+        src = src.replace('#include "vk_context.h"', '#include <errno.h>\n#include "vk_context.h"', 1)
+        n += 1
+
     old = 'VkContext* createVkContext(JNIEnv* env, jobject obj, int clientFd, jobject options) {'
     if old in src and 'createVkContext enter' not in src:
-        src = src.replace(old, old + '\n    MLOGE("createVkContext enter");', 1)
+        src = src.replace(old, old + '\n    MLOGE("createVkContext enter clientFd=%d", clientFd);', 1)
         n += 1
+
+    pairs = [
+        ('if (!context->serverRing) return false;',
+         'if (!context->serverRing) { MLOGE("VT ring serverRing FAIL"); return false; }'),
+        ('if (!context->clientRing) return false;',
+         'if (!context->clientRing) { MLOGE("VT ring clientRing FAIL"); return false; }'),
+        ('if (!context->ringPool[i].ring) return false;',
+         'if (!context->ringPool[i].ring) { MLOGE("VT ring pool FAIL i=%d", i); return false; }'),
+        ('if (result < 0) return false;',
+         'if (result < 0) { MLOGE("VT send_fds FAIL result=%d errno=%d", result, errno); return false; }'),
+        ('pthread_create(&context->requestHandlerThread, NULL, requestHandlerThread, context);',
+         'MLOGE("VT setupRingBuffers OK, starting handler");\n    pthread_create(&context->requestHandlerThread, NULL, requestHandlerThread, context);'),
+    ]
+    for o, nw in pairs:
+        if o in src:
+            src = src.replace(o, nw, 1)
+            n += 1
+
+    old2 = 'static void* requestHandlerThread(void* param) {\n    VkContext* context = param;'
+    if old2 in src and 'VT handler thread start' not in src:
+        src = src.replace(old2, old2 + '\n    MLOGE("VT handler thread start");', 1)
+        n += 1
+
+    old3 = ('int requestCode = vt_recv(context->serverRing, &context->inputBuffer, &context->inputBufferSize, &context->memoryPool);\n'
+            '        if (requestCode < 0) break;')
+    if old3 in src and 'VT handler req' not in src:
+        src = src.replace(
+            old3,
+            'int requestCode = vt_recv(context->serverRing, &context->inputBuffer, &context->inputBufferSize, &context->memoryPool);\n'
+            '        MLOGE("VT handler req=%d", requestCode);\n'
+            '        if (requestCode < 0) break;', 1)
+        n += 1
+
     return src, n
 
 
