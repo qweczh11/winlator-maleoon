@@ -32,6 +32,34 @@ jobs:
           ls -l src/app/src/main/assets/cjk_fonts.tzst
 
 
+      - name: Build patched DXVK 1.10.3 (bypass FL gate)
+        run: |
+          set -e
+          sudo apt-get install -y -qq zstd mingw-w64 glslang-tools ninja-build
+          python3 -m pip install --quiet meson
+          curl -sL -o /tmp/dxvk.tar.gz https://github.com/doitsujin/dxvk/archive/refs/tags/v1.10.3.tar.gz
+          rm -rf /tmp/dxvk && mkdir -p /tmp/dxvk && tar xf /tmp/dxvk.tar.gz -C /tmp/dxvk --strip-components=1
+          cd /tmp/dxvk
+          # [maleoon] Vortek 客户端不回传 core VkPhysicalDeviceFeatures（全 0），
+          # 导致 logicOp / variableMultisampleRate 等少数从驱动读取的位判为不支持，
+          # CheckFeatureLevelSupport 一路 return false，FL 掉到 9_3。
+          # 这里把该校验短接，只保留 GetMaxFeatureLevel 上限。
+          sed -i 's|if (!adapter->checkFeatureSupport(features))|if (false \&\& !adapter->checkFeatureSupport(features))|' src/d3d11/d3d11_device.cpp
+          grep -n "false && !adapter->checkFeatureSupport" src/d3d11/d3d11_device.cpp
+          meson setup --cross-file build-win64.txt --buildtype release build.w64
+          ninja -C build.w64
+          ls -l build.w64/src/d3d11/d3d11.dll build.w64/src/dxgi/dxgi.dll
+          # 只替换 64 位 d3d11/dxgi，其余 DLL 与原版保持一致（接口 ABI 未变）
+          TZ="$GITHUB_WORKSPACE/src/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"
+          echo "TZST=$TZ"
+          ls -l "$TZ"
+          rm -rf /tmp/dxvkout && mkdir -p /tmp/dxvkout
+          tar --use-compress-program=unzstd -xf "$TZ" -C /tmp/dxvkout
+          cp -f build.w64/src/d3d11/d3d11.dll /tmp/dxvkout/system32/d3d11.dll
+          cp -f build.w64/src/dxgi/dxgi.dll /tmp/dxvkout/system32/dxgi.dll
+          tar --use-compress-program=zstd -cf "$TZ" -C /tmp/dxvkout system32 syswow64
+          ls -l "$TZ"
+          tar --use-compress-program=unzstd -tf "$TZ" | head -20
       - name: Show patched lines
         run: |
           grep -n "MaleoonVK\|0x19E5u" src/app/src/main/cpp/vortekrenderer/src/*.c \
