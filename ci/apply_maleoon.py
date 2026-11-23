@@ -384,16 +384,6 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
           features.tessellationShader, features.dualSrcBlend, features.logicOp);''', 1)
         n += 1
 
-    # 摘掉 Features2 响应里的 pNext 链：服务端已把所有 core feature 置 TRUE，
-    # 但 pNext 链要按 sType 逐项序列化，客户端只要有一个 sType 不认识就会 index 错位，
-    # 导致后面 21 个 core VkBool32 全读成 0 → DXVK 判定 tessellationShader/dualSrcBlend/
-    # logicOp 全不支持 → FL 卡在 9_3。置 NULL 后线上只剩 sType + (-1) + 84 字节。
-    old = 'features.features.drawIndirectFirstInstance);'
-    if old in src and 'features.pNext = NULL' not in src:
-        src = src.replace(old, old + '''
-    features.pNext = NULL;''', 1)
-        n += 1
-
     if '#include <unistd.h>' not in src:
         if '#include <string.h>' in src:
             src = src.replace('#include <string.h>', '#include <string.h>\n#include <unistd.h>', 1)
