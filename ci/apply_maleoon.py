@@ -454,6 +454,72 @@ def patch_rootfs_installer(src):
     return src, n
 
 
+def patch_drawable(src):
+    """X11 CopyArea: data 字段可能被其他线程置空，判空后必须用局部引用（NPE at Drawable.copyArea）"""
+    n = 0
+    old = '''    public void copyArea(short srcX, short srcY, short dstX, short dstY, short width, short height, Drawable drawable, GraphicsContext.Function gcFunction) {
+        if (this.data == null || drawable.data == null) return;
+
+        dstX = (short)Mathf.clamp(dstX, 0, this.width-1);
+        dstY = (short)Mathf.clamp(dstY, 0, this.height-1);
+        if ((dstX + width) > this.width) width = (short)(this.width - dstX);
+        if ((dstY + height) > this.height) height = (short)(this.height - dstY);
+
+        if (gcFunction == GraphicsContext.Function.COPY) {
+            copyArea(srcX, srcY, dstX, dstY, width, height, drawable.getStride(), this.getStride(), drawable.data, this.data);
+        }
+        else copyAreaOp(srcX, srcY, dstX, dstY, width, height, drawable.getStride(), this.getStride(), drawable.data, this.data, gcFunction.ordinal());
+
+        this.data.rewind();
+        drawable.data.rewind();
+
+        forceUpdate();
+    }'''
+    new = '''    public void copyArea(short srcX, short srcY, short dstX, short dstY, short width, short height, Drawable drawable, GraphicsContext.Function gcFunction) {
+        ByteBuffer dstData = drawable != null ? drawable.data : null;
+        ByteBuffer srcData = this.data;
+        if (srcData == null || dstData == null) return;
+
+        dstX = (short)Mathf.clamp(dstX, 0, this.width-1);
+        dstY = (short)Mathf.clamp(dstY, 0, this.height-1);
+        if ((dstX + width) > this.width) width = (short)(this.width - dstX);
+        if ((dstY + height) > this.height) height = (short)(this.height - dstY);
+
+        if (gcFunction == GraphicsContext.Function.COPY) {
+            copyArea(srcX, srcY, dstX, dstY, width, height, drawable.getStride(), this.getStride(), dstData, srcData);
+        }
+        else copyAreaOp(srcX, srcY, dstX, dstY, width, height, drawable.getStride(), this.getStride(), dstData, srcData, gcFunction.ordinal());
+
+        srcData.rewind();
+        dstData.rewind();
+
+        forceUpdate();
+    }'''
+    if old in src:
+        src = src.replace(old, new, 1)
+        n += 1
+
+    old2 = '''        if (this.data == null) return dstData;
+'''
+    new2 = '''        ByteBuffer srcData = this.data;
+        if (srcData == null) return dstData;
+'''
+    if old2 in src and 'ByteBuffer srcData = this.data;\n        if (srcData == null) return dstData;' not in src:
+        src = src.replace(old2, new2, 1)
+        n += 1
+
+    old3 = '''        copyArea(x, y, (short)0, (short)0, width, height, this.getStride(), width, this.data, dstData);
+
+        this.data.rewind();'''
+    new3 = '''        copyArea(x, y, (short)0, (short)0, width, height, this.getStride(), width, srcData, dstData);
+
+        srcData.rewind();'''
+    if old3 in src:
+        src = src.replace(old3, new3, 1)
+        n += 1
+    return src, n
+
+
 ok = True
 ok &= patch_file(os.path.join(R, 'include/vk_context.h'), patch_vk_context_h)
 ok &= patch_file(os.path.join(R, 'src/vk_context.c'), patch_vk_context)
@@ -463,6 +529,7 @@ ok &= patch_file(os.path.join(R, 'src/texture_decoder.c'), patch_texture_decoder
 ok &= patch_file(os.path.join(R, 'src/request_handler.c'), patch_request_handler)
 ok &= patch_file(os.path.join(G, 'src/gl_texture.c'), patch_gl_texture)
 ok &= patch_file(os.path.join(APP, 'src/main/java/com/winlator/xenvironment/RootFSInstaller.java'), patch_rootfs_installer)
+ok &= patch_file(os.path.join(APP, 'src/main/java/com/winlator/xserver/Drawable.java'), patch_drawable)
 
 print('=== patch report ===')
 for r in report:
