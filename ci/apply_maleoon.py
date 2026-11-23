@@ -212,7 +212,6 @@ def patch_request_handler(src):
     if old in src and 'vkCreateInstance result' not in src:
         src = src.replace(old, old + '\n    MLOGE("vkCreateInstance result=%d", (int)result);', 1)
         n += 1
-
     old = 'VkResult result = vulkanWrapper.vkCreateDevice(physicalDevice, &createInfo, NULL, &device);'
     if old in src and 'vkCreateDevice result' not in src:
         src = src.replace(old, old + '''
@@ -354,6 +353,34 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
     if (result == VK_ERROR_DEVICE_LOST) context->status = result;'''
     if old_qs in src and 'vtQueueSubmit:' not in src:
         src = src.replace(old_qs, new_qs, 1)
+        n += 1
+
+    old = 'vulkanWrapper.vkGetPhysicalDeviceFeatures2(physicalDevice, &features);'
+    if old in src and 'vtFeat2 pre' not in src:
+        src = src.replace(old, old + '''
+    MLOGE("vtFeat2 pre: fullDraw=%u cube=%u tess=%u dual=%u logic=%u mdi=%u dib=%u pNext=%p",
+          features.features.fullDrawIndexUint32, features.features.imageCubeArray,
+          features.features.tessellationShader, features.features.dualSrcBlend,
+          features.features.logicOp, features.features.multiDrawIndirect,
+          features.features.drawIndirectFirstInstance, features.pNext);''', 1)
+        n += 1
+
+    old = 'checkDeviceFeatures(&features.features, features.pNext);'
+    if old in src and 'vtFeat2 post' not in src:
+        src = src.replace(old, old + '''
+    MLOGE("vtFeat2 post: fullDraw=%u cube=%u tess=%u dual=%u logic=%u mdi=%u dib=%u",
+          features.features.fullDrawIndexUint32, features.features.imageCubeArray,
+          features.features.tessellationShader, features.features.dualSrcBlend,
+          features.features.logicOp, features.features.multiDrawIndirect,
+          features.features.drawIndirectFirstInstance);''', 1)
+        n += 1
+
+    old = 'checkDeviceFeatures(&features, NULL);'
+    if old in src and 'vtFeat1 post' not in src:
+        src = src.replace(old, old + '''
+    MLOGE("vtFeat1 post: fullDraw=%u cube=%u tess=%u dual=%u logic=%u",
+          features.fullDrawIndexUint32, features.imageCubeArray,
+          features.tessellationShader, features.dualSrcBlend, features.logicOp);''', 1)
         n += 1
 
     if '#include <unistd.h>' not in src:
