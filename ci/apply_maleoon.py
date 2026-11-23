@@ -150,15 +150,6 @@ def patch_vulkan_helper(src):
         src = src.replace(old, 'if ((isMaliDevice || isHuaweiDevice || isXclipseDevice) && context->engineVersion', 1)
         n += 1
 
-    # DXVK: 隐藏 VK_KHR_get_physical_device_properties2，逼迫它回退到 vkGetPhysicalDeviceFeatures。
-    # 原因：Features2 的响应里 core VkPhysicalDeviceFeatures 在客户端拿不到（全 0），
-    # 导致 DXVK 判定 fullDrawIndexUint32/tessellationShader/dualSrcBlend 等全不支持 → FL 卡 9_3。
-    # Features1 的协议是纯 21 个 VkBool32，没有 pNext 链，客户端一定能读对。
-    old = 'const char* disabledDeviceExtensions[] = {"VK_KHR_shader_float_controls", "VK_EXT_hdr_metadata", "VK_EXT_swapchain_maintenance1"};'
-    new = 'const char* disabledDeviceExtensions[] = {"VK_KHR_shader_float_controls", "VK_EXT_hdr_metadata", "VK_EXT_swapchain_maintenance1", "VK_KHR_get_physical_device_properties2"};'
-    if old in src and 'VK_KHR_get_physical_device_properties2' not in src:
-        src = src.replace(old, new, 1)
-        n += 1
     old = 'void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {\n    features->textureCompressionBC = VK_TRUE;'
     if old in src and 'vtFeatures' not in src:
         src = src.replace(old, '''void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {
@@ -391,6 +382,16 @@ static bool vtIsDeviceExtensionSupported(VkPhysicalDevice physicalDevice, const 
     MLOGE("vtFeat1 post: fullDraw=%u cube=%u tess=%u dual=%u logic=%u",
           features.fullDrawIndexUint32, features.imageCubeArray,
           features.tessellationShader, features.dualSrcBlend, features.logicOp);''', 1)
+        n += 1
+
+    # 摘掉 Features2 响应里的 pNext 链：服务端已把所有 core feature 置 TRUE，
+    # 但 pNext 链要按 sType 逐项序列化，客户端只要有一个 sType 不认识就会 index 错位，
+    # 导致后面 21 个 core VkBool32 全读成 0 → DXVK 判定 tessellationShader/dualSrcBlend/
+    # logicOp 全不支持 → FL 卡在 9_3。置 NULL 后线上只剩 sType + (-1) + 84 字节。
+    old = 'features.features.drawIndirectFirstInstance);'
+    if old in src and 'features.pNext = NULL' not in src:
+        src = src.replace(old, old + '''
+    features.pNext = NULL;''', 1)
         n += 1
 
     if '#include <unistd.h>' not in src:
