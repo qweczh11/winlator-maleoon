@@ -149,6 +149,16 @@ def patch_vulkan_helper(src):
     if old in src:
         src = src.replace(old, 'if ((isMaliDevice || isHuaweiDevice || isXclipseDevice) && context->engineVersion', 1)
         n += 1
+
+    # DXVK: 隐藏 VK_KHR_get_physical_device_properties2，逼迫它回退到 vkGetPhysicalDeviceFeatures。
+    # 原因：Features2 的响应里 core VkPhysicalDeviceFeatures 在客户端拿不到（全 0），
+    # 导致 DXVK 判定 fullDrawIndexUint32/tessellationShader/dualSrcBlend 等全不支持 → FL 卡 9_3。
+    # Features1 的协议是纯 21 个 VkBool32，没有 pNext 链，客户端一定能读对。
+    old = 'const char* disabledDeviceExtensions[] = {"VK_KHR_shader_float_controls", "VK_EXT_hdr_metadata", "VK_EXT_swapchain_maintenance1"};'
+    new = 'const char* disabledDeviceExtensions[] = {"VK_KHR_shader_float_controls", "VK_EXT_hdr_metadata", "VK_EXT_swapchain_maintenance1", "VK_KHR_get_physical_device_properties2"};'
+    if old in src and 'VK_KHR_get_physical_device_properties2' not in src:
+        src = src.replace(old, new, 1)
+        n += 1
     old = 'void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {\n    features->textureCompressionBC = VK_TRUE;'
     if old in src and 'vtFeatures' not in src:
         src = src.replace(old, '''void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {
