@@ -37,9 +37,15 @@ jobs:
           set -e
           sudo apt-get install -y -qq zstd mingw-w64 glslang-tools ninja-build
           python3 -m pip install --quiet meson
-          curl -sL -o /tmp/dxvk.tar.gz https://github.com/Sporif/dxvk-async/archive/refs/tags/1.10.3.tar.gz
+          # dxvk-async：Sporif 的 tag 只有 patch 文件，需要打在官方源码上
+          # 1.10.2-1.10.3 对应 dxvk-async-af418dc.patch
+          curl -sL -o /tmp/dxvk.tar.gz https://github.com/doitsujin/dxvk/archive/refs/tags/v1.10.3.tar.gz
+          curl -sL -o /tmp/async.patch https://raw.githubusercontent.com/Sporif/dxvk-async/master/dxvk-async-af418dc.patch
+          ls -l /tmp/dxvk.tar.gz /tmp/async.patch
           rm -rf /tmp/dxvk && mkdir -p /tmp/dxvk && tar xf /tmp/dxvk.tar.gz -C /tmp/dxvk --strip-components=1
           cd /tmp/dxvk
+          patch -p1 --forward < /tmp/async.patch || { echo "!! async patch 应用失败"; exit 1; }
+          echo "async patch OK"
           # 新版 mingw-w64 (gcc13/14) 不再隐式包含 <cstdint>，DXVK 1.10.3 会报 uint32_t 未声明
           export CXXFLAGS="-include cstdint"
           export CFLAGS="-include stdint.h"
