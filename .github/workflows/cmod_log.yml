@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'ci/patch_cmod_log.py'
+      - 'ci/patch_cmod_cmake.py'
       - '.github/workflows/cmod_log.yml'
 
 jobs:
@@ -45,6 +46,9 @@ jobs:
 
       - name: Apply maleoon log patch
         run: python3 ci/patch_cmod_log.py src/app/src/main/java/com/winlator/cmod/core/ProcessHelper.java
+
+      - name: Apply cmake patch (skip sdl2/evshim)
+        run: python3 ci/patch_cmod_cmake.py src/app/src/main/cpp/CMakeLists.txt
 
       - uses: actions/setup-java@v4
         with:
