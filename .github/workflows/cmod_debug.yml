@@ -33,7 +33,7 @@ jobs:
 
       - name: Decode (no dex)
         run: |
-          java -Xmx8g -jar apktool.jar d -s -f -o out cmod.apk 2>&1 | tail -10
+          java -Xmx8g -jar apktool.jar d -s -f -nc -o out cmod.apk 2>&1 | tail -10
           ls -l out/AndroidManifest.xml
 
       - name: Patch debuggable
@@ -54,7 +54,7 @@ jobs:
 
       - name: Repack
         run: |
-          java -Xmx8g -jar apktool.jar b -f -o cmod_dbg.apk out 2>&1 | tail -10
+          java -Xmx8g -jar apktool.jar b -f --use-aapt2 -o cmod_dbg.apk out 2>&1 | tail -15
           ls -l cmod_dbg.apk
 
       - name: Sign
