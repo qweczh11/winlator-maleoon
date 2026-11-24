@@ -54,6 +54,10 @@ jobs:
           # 只编 d3d11/dxgi（d3d9 模块在 mingw-w64 新版头文件下会重复定义，与本改动无关）
           ninja -C build.w64 src/d3d11/d3d11.dll src/dxgi/dxgi.dll
           ls -l build.w64/src/d3d11/d3d11.dll build.w64/src/dxgi/dxgi.dll
+          # 32 位版本（大量 Unity 游戏是 x86）
+          meson setup --cross-file build-win32.txt --buildtype release build.w32
+          ninja -C build.w32 src/d3d11/d3d11.dll src/dxgi/dxgi.dll
+          ls -l build.w32/src/d3d11/d3d11.dll build.w32/src/dxgi/dxgi.dll
           # 只替换 64 位 d3d11/dxgi，其余 DLL 与原版保持一致（接口 ABI 未变）
           TZ="$GITHUB_WORKSPACE/src/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"
           echo "TZST=$TZ"
@@ -62,6 +66,9 @@ jobs:
           tar --use-compress-program=unzstd -xf "$TZ" -C /tmp/dxvkout
           cp -f build.w64/src/d3d11/d3d11.dll /tmp/dxvkout/system32/d3d11.dll
           cp -f build.w64/src/dxgi/dxgi.dll /tmp/dxvkout/system32/dxgi.dll
+          cp -f build.w32/src/d3d11/d3d11.dll /tmp/dxvkout/syswow64/d3d11.dll
+          cp -f build.w32/src/dxgi/dxgi.dll /tmp/dxvkout/syswow64/dxgi.dll
+          ls -l /tmp/dxvkout/system32/d3d11.dll /tmp/dxvkout/syswow64/d3d11.dll
           tar --use-compress-program=zstd -cf "$TZ" -C /tmp/dxvkout system32 syswow64
           ls -l "$TZ"
           tar --use-compress-program=unzstd -tf "$TZ" | head -20
