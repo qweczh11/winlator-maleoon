@@ -80,11 +80,17 @@ jobs:
 
       - name: Sign
         run: |
-          BT=$(base64 -w0 ci/maleoon.keystore.b64 2>/dev/null | head -c 100)
+          BT=$(ls -d /usr/local/lib/android/sdk/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+          echo "build-tools: $BT"
+          if [ -z "$BT" ]; then BT=$(find / -name zipalign -type f 2>/dev/null | head -1 | xargs -r dirname); echo "fallback: $BT"; fi
+          ZA="$BT/zipalign"; AS="$BT/apksigner"
+          [ -x "$ZA" ] || ZA=zipalign
+          [ -x "$AS" ] || AS=apksigner
           base64 -d ci/maleoon.keystore.b64 > k.jks
-          zipalign -p -f 4 cmod_dbg.apk cmod_aligned.apk
-          apksigner sign --ks k.jks --ks-pass pass:maleoon123 --ks-key-alias maleoon --out cmod-debuggable.apk cmod_aligned.apk
-          apksigner verify --print-certs cmod-debuggable.apk 2>&1 | head -3
+          ls -l k.jks
+          "$ZA" -p -f 4 cmod_dbg.apk cmod_aligned.apk
+          "$AS" sign --ks k.jks --ks-pass pass:maleoon123 --ks-key-alias maleoon --out cmod-debuggable.apk cmod_aligned.apk
+          "$AS" verify --print-certs cmod-debuggable.apk 2>&1 | head -3
           ls -l cmod-debuggable.apk
 
       - uses: actions/upload-artifact@v4
