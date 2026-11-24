@@ -1,0 +1,73 @@
+name: Build debuggable Cmod
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ci/cmod_debug.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zip unzip
+          curl -sL --retry 5 -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          ls -l apktool.jar
+          java -version 2>&1 | head -2
+
+      - name: Download Cmod APK (mirror first, then direct)
+        run: |
+          U='https://github.com/coffincolors/winlator/releases/download/cmod_v13.1/Winlator-Cmod-v13.1.1.apk'
+          curl -sL --retry 10 --retry-all-errors --retry-delay 3 -m 1800 -o cmod.apk "$U" || echo "direct failed"
+          SZ=$(stat -c%s cmod.apk 2>/dev/null || echo 0)
+          echo "size=$SZ"
+          if [ "$SZ" -lt 600000000 ]; then
+            echo "!! 下载不完整，尝试镜像"
+            curl -sL --retry 10 --retry-all-errors -m 1800 -o cmod.apk "https://ghfast.top/$U" || true
+            stat -c%s cmod.apk
+          fi
+
+      - name: Decode (no dex)
+        run: |
+          java -Xmx8g -jar apktool.jar d -s -f -o out cmod.apk 2>&1 | tail -10
+          ls -l out/AndroidManifest.xml
+
+      - name: Patch debuggable
+        run: |
+          python3 - <<'EOF'
+          import re
+          p = 'out/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          if 'android:debuggable' in s:
+              s = re.sub(r'android:debuggable="[^"]*"', 'android:debuggable="true"', s)
+          else:
+              s = s.replace('<application', '<application android:debuggable="true"', 1)
+          open(p, 'w', encoding='utf-8').write(s)
+          ok = 'android:debuggable="true"' in open(p, encoding='utf-8').read()
+          print('DEBUGGABLE_PATCHED =', ok)
+          assert ok
+          EOF
+
+      - name: Repack
+        run: |
+          java -Xmx8g -jar apktool.jar b -f -o cmod_dbg.apk out 2>&1 | tail -10
+          ls -l cmod_dbg.apk
+
+      - name: Sign
+        run: |
+          BT=$(base64 -w0 ci/maleoon.keystore.b64 2>/dev/null | head -c 100)
+          base64 -d ci/maleoon.keystore.b64 > k.jks
+          zipalign -p -f 4 cmod_dbg.apk cmod_aligned.apk
+          apksigner sign --ks k.jks --ks-pass pass:maleoon123 --ks-key-alias maleoon --out cmod-debuggable.apk cmod_aligned.apk
+          apksigner verify --print-certs cmod-debuggable.apk 2>&1 | head -3
+          ls -l cmod-debuggable.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cmod-debuggable
+          path: cmod-debuggable.apk
+          compression-level: 0
